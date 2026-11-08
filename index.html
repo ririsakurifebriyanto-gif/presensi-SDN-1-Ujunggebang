@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<base target="_top">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root{--bg:#f3f6f4;--card:#fff;--ink:#14231c;--mute:#5d6f66;--line:#d5dfd9;--accent:#0f7a5a;--on:#fff;--ok:#0f7a5a;--warn:#b26a00;--bad:#b3261e;color-scheme:light}
+@media (prefers-color-scheme:dark){:root{--bg:#0e1713;--card:#16221c;--ink:#e6f0ea;--mute:#8fa399;--line:#2a3a32;--accent:#3fc79a;--on:#06251a;--ok:#3fc79a;--warn:#f0b04a;--bad:#ff8a80;color-scheme:dark}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:760px;margin:0 auto;padding:16px}
+h1{font-size:1.3rem;margin:0 0 12px}h2{font-size:1.05rem;margin:0 0 10px}
+nav{display:flex;gap:6px;margin-bottom:14px}
+nav button{flex:1;padding:10px;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:8px;font:inherit;cursor:pointer}
+nav button[aria-selected="true"]{background:var(--accent);color:var(--on);border-color:var(--accent);font-weight:600}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:14px}
+label{display:block;font-size:.85rem;color:var(--mute);margin-bottom:3px}
+input,select{width:100%;padding:9px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);font:inherit}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end}.row>*{flex:1;min-width:120px}
+.btn{padding:10px 14px;border:0;border-radius:8px;background:var(--accent);color:var(--on);font:inherit;font-weight:600;cursor:pointer;flex:0 0 auto}
+.alt{background:transparent;color:var(--ink);border:1px solid var(--line)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+#reader{width:100%;max-width:340px;margin:0 auto 10px;border-radius:8px;overflow:hidden}
+#result{padding:12px;border-radius:8px;border:1px solid var(--line);margin-top:10px;min-height:56px}
+#result.ok{border-color:var(--ok)}#result.warn{border-color:var(--warn)}#result.bad{border-color:var(--bad)}
+.tbl{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:.92rem}
+th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+.s-Hadir{color:var(--ok)}.s-Terlambat{color:var(--warn)}.s-Belum{color:var(--bad)}
+.sum{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}.sum span{padding:4px 10px;border:1px solid var(--line);border-radius:99px;font-size:.88rem}
+.muted{color:var(--mute);font-size:.9rem}
+.cards{display:flex;flex-wrap:wrap;gap:8px}
+.idc{border:1px solid #000;border-radius:8px;padding:8px;text-align:center;width:200px;break-inside:avoid;color:#000;background:#fff;font-size:.85rem}
+.idc svg{width:120px;height:120px}
+@media print{body *{visibility:hidden}#cards,#cards *{visibility:visible}#cards{position:absolute;left:0;top:0}}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<main>
+<h1>Absensi siswa dengan kartu QR</h1>
+<nav>
+<button data-tab="scan" aria-selected="true">Scan</button>
+<button data-tab="rekap" aria-selected="false">Rekap</button>
+<button data-tab="kartu" aria-selected="false">Kartu</button>
+</nav>
+
+<section id="scan">
+<div class="card">
+<div id="reader"></div>
+<div class="row">
+<button class="btn" id="camBtn">Nyalakan kamera</button>
+<div><label for="manual">Atau ketik NIS / pakai scanner USB, lalu Enter</label><input id="manual" autocomplete="off"></div>
+</div>
+<div id="result" class="muted" aria-live="polite">Arahkan kamera ke kartu siswa.</div>
+</div>
+<div class="card"><h2>Masuk hari ini</h2><div class="tbl" id="todayList"></div></div>
+</section>
+
+<section id="rekap" hidden>
+<div class="card">
+<div class="row">
+<div><label for="rdate">Tanggal</label><input id="rdate" type="date"></div>
+<div><label for="rkelas">Kelas</label><select id="rkelas"></select></div>
+</div>
+<div class="sum" id="sum"></div>
+<div class="tbl" id="rekapList"></div>
+<p class="muted">Rekap lengkap dan grafik bisa dibuat langsung dari sheet Absensi.</p>
+</div>
+</section>
+
+<section id="kartu" hidden>
+<div class="card">
+<p class="muted">Daftar siswa diambil dari sheet Siswa. Setiap kartu berisi QR dari NIS.</p>
+<button class="btn" onclick="window.print()">Cetak kartu</button>
+</div>
+<div class="cards" id="cards"></div>
+</section>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+<script>
+const $=id=>document.getElementById(id);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const run=google.script.run;
+let D={siswa:[],today:""},cam=null,last="",lastAt=0;
+
+document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{
+  document.querySelectorAll("nav button").forEach(x=>x.setAttribute("aria-selected",x===b));
+  ["scan","rekap","kartu"].forEach(t=>$(t).hidden=t!==b.dataset.tab);
+  if(b.dataset.tab!=="scan")stopCam();
+  if(b.dataset.tab==="rekap")loadRekap();
+});
+
+function table(h,rows){return rows.length?"<table><thead><tr>"+h.map(x=>"<th>"+x+"</th>").join("")+"</tr></thead><tbody>"+rows.join("")+"</tbody></table>":""}
+const cls=s=>s==="Belum hadir"?"Belum":s;
+
+function show(r){
+  const el=$("result");el.className=r.type;
+  el.innerHTML=(r.nama?"<b>"+esc(r.nama)+"</b> ("+esc(r.kelas)+")<br>":"<b>Gagal</b><br>")+esc(r.msg);
+}
+function proses(code){
+  code=String(code).trim();
+  if(!code||(code===last&&Date.now()-lastAt<3000))return;
+  last=code;lastAt=Date.now();
+  $("result").className="muted";$("result").textContent="Memeriksa...";
+  run.withSuccessHandler(r=>{show(r);loadToday()})
+     .withFailureHandler(e=>show({type:"bad",msg:e.message}))
+     .scan(code);
+}
+function startCam(){
+  cam=new Html5Qrcode("reader");
+  cam.start({facingMode:"environment"},{fps:10,qrbox:{width:230,height:230}},proses,()=>{})
+    .then(()=>$("camBtn").textContent="Matikan kamera")
+    .catch(()=>{cam=null;show({type:"bad",msg:"Kamera tidak bisa dibuka. Izinkan akses kamera, atau ketik NIS di kolom yang tersedia."})});
+}
+function stopCam(){if(cam){const c=cam;cam=null;c.stop().then(()=>c.clear()).catch(()=>{})}$("camBtn").textContent="Nyalakan kamera"}
+$("camBtn").onclick=()=>cam?stopCam():startCam();
+$("manual").addEventListener("keydown",e=>{if(e.key==="Enter"){proses(e.target.value);e.target.value=""}});
+
+function loadToday(){
+  run.withSuccessHandler(rows=>{
+    const r=rows.filter(x=>x.jam).sort((a,b)=>b.jam.localeCompare(a.jam));
+    $("todayList").innerHTML=r.length?table(["Jam","Nama","Kelas","Status"],r.map(x=>"<tr><td>"+x.jam+"</td><td>"+esc(x.nama)+"</td><td>"+esc(x.kelas)+"</td><td class='s-"+x.status+"'>"+x.status+"</td></tr>")):"<p class='muted'>Belum ada siswa yang absen hari ini.</p>";
+  }).getRekap(D.today);
+}
+function loadRekap(){
+  $("rekapList").innerHTML="<p class='muted'>Memuat...</p>";
+  run.withSuccessHandler(rows=>{
+    const k=$("rkelas").value,v=rows.filter(r=>!k||k==="Semua"||r.kelas===k);
+    const c=s=>v.filter(r=>r.status===s).length;
+    $("sum").innerHTML="<span class='s-Hadir'>Hadir "+c("Hadir")+"</span><span class='s-Terlambat'>Terlambat "+c("Terlambat")+"</span><span class='s-Belum'>Belum hadir "+c("Belum hadir")+"</span>";
+    $("rekapList").innerHTML=table(["Nama","Kelas","Jam","Status"],v.map(r=>"<tr><td>"+esc(r.nama)+"</td><td>"+esc(r.kelas)+"</td><td>"+(r.jam||"-")+"</td><td class='s-"+cls(r.status)+"'>"+r.status+"</td></tr>"))||"<p class='muted'>Tidak ada data.</p>";
+  }).getRekap($("rdate").value);
+}
+$("rdate").onchange=loadRekap;$("rkelas").onchange=loadRekap;
+
+function qrSvg(t){const q=qrcode(0,"M");q.addData(t);q.make();return q.createSvgTag(4,0)}
+run.withSuccessHandler(d=>{
+  D=d;$("rdate").value=d.today;
+  $("rkelas").innerHTML=["Semua",...new Set(d.siswa.map(s=>s.kelas))].map(k=>"<option>"+esc(k)+"</option>").join("");
+  $("cards").innerHTML=d.siswa.length?d.siswa.map(s=>"<div class='idc'>"+qrSvg(s.nis)+"<div><b>"+esc(s.nama)+"</b></div><div>NIS "+esc(s.nis)+", kelas "+esc(s.kelas)+"</div></div>").join(""):"<p class='muted'>Sheet Siswa masih kosong. Isi NIS, Nama, Kelas, lalu muat ulang halaman ini.</p>";
+  loadToday();
+}).withFailureHandler(e=>show({type:"bad",msg:e.message})).getData();
+</script>
+</body>
+</html>
